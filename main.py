@@ -5,11 +5,6 @@ import os
 from pathlib import Path
 import uuid
 from datetime import datetime
-from dotenv import load_dotenv
-import os
-
-# Load environment variables from .env file
-load_dotenv()
 
 from services.parser import parse_bank_statement
 from services.categorizer import categorize_transactions
@@ -99,6 +94,13 @@ async def upload_statement(file: UploadFile = File(...)):
         # Clean up files on error
         if upload_path.exists():
             upload_path.unlink()
+
+        # Log the full error for debugging
+        import traceback
+
+        print(f"ERROR: {str(e)}")
+        print(traceback.format_exc())
+
         raise HTTPException(status_code=500, detail=f"Processing error: {str(e)}")
 
 
