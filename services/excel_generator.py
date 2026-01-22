@@ -1,105 +1,61 @@
 from pathlib import Path
 from typing import List, Dict
 import pandas as pd
-from openpyxl import load_workbook
-from openpyxl.chart import BarChart, LineChart, Reference
+from openpyxl import load_workbook, Workbook
+from openpyxl.chart import BarChart, Reference
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-from openpyxl.utils import get_column_letter
+from openpyxl.formatting.rule import DataBarRule
 from services.categorizer import get_category_summary, get_monthly_summary
 from datetime import datetime
 
 
 def generate_cfo_pack(transactions: List[Dict], output_path: Path):
     """
-    Generate Professional CFO Pack with:
-    1. Dashboard (Summary + Charts)
-    2. All Transactions
-    3. Monthly Analysis
-    4. Category Analysis
-    5. How to Use
+    Generate State-of-the-Art CFO Dashboard
     """
 
-    # Calculate key metrics
+    # Calculate metrics
     total_income = sum(t["amount"] for t in transactions if t["amount"] > 0)
     total_expenses = abs(sum(t["amount"] for t in transactions if t["amount"] < 0))
     net_income = total_income - total_expenses
 
-    # Get date range
     dates = [datetime.strptime(t["date"], "%Y-%m-%d") for t in transactions]
     start_date = min(dates)
     end_date = max(dates)
     months_count = len(set(d.strftime("%Y-%m") for d in dates))
 
-    # Get summaries
     monthly_summary = get_monthly_summary(transactions)
     category_summary = get_category_summary(transactions)
 
-    # Create Excel writer
-    with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+    # Create workbook
+    wb = Workbook()
+    wb.remove(wb.active)  # Remove default sheet
 
-        # Sheet 1: Dashboard Overview
-        create_dashboard_sheet(
-            writer,
-            transactions,
-            total_income,
-            total_expenses,
-            net_income,
-            start_date,
-            end_date,
-            months_count,
-        )
+    # Create sheets
+    create_executive_dashboard(
+        wb,
+        transactions,
+        total_income,
+        total_expenses,
+        net_income,
+        start_date,
+        end_date,
+        months_count,
+        monthly_summary,
+        category_summary,
+    )
 
-        # Sheet 2: All Transactions
-        df_transactions = pd.DataFrame(transactions)
-        df_transactions = df_transactions[
-            ["date", "description", "category", "amount", "type"]
-        ]
-        df_transactions = df_transactions.sort_values(
-            "date", ascending=False
-        )  # Most recent first
-        df_transactions.to_excel(writer, sheet_name="All Transactions", index=False)
+    create_transactions_sheet(wb, transactions)
+    create_monthly_sheet(wb, monthly_summary)
+    create_category_sheet(wb, category_summary, total_expenses)
+    create_instructions_sheet(wb)
 
-        # Sheet 3: Monthly Analysis
-        df_monthly = pd.DataFrame.from_dict(monthly_summary, orient="index")
-        df_monthly.index.name = "Month"
-        df_monthly = df_monthly.reset_index()
-        df_monthly = df_monthly.sort_values("Month")
-        df_monthly.to_excel(writer, sheet_name="Monthly Analysis", index=False)
-
-        # Sheet 4: Category Analysis
-        df_categories = pd.DataFrame(
-            [
-                {
-                    "Category": cat,
-                    "Amount": amt,
-                    "Percentage": (abs(amt) / total_expenses * 100) if amt < 0 else 0,
-                }
-                for cat, amt in sorted(
-                    category_summary.items(), key=lambda x: abs(x[1]), reverse=True
-                )
-            ]
-        )
-        df_categories.to_excel(writer, sheet_name="Category Analysis", index=False)
-
-        # Sheet 5: How to Use
-        create_instructions_sheet(writer)
-
-    # Load workbook to add formatting and charts
-    workbook = load_workbook(output_path)
-
-    # Format each sheet
-    format_dashboard_sheet(workbook["Dashboard"], monthly_summary, category_summary)
-    format_transactions_sheet(workbook["All Transactions"])
-    format_monthly_sheet(workbook["Monthly Analysis"])
-    format_category_sheet(workbook["Category Analysis"])
-    format_instructions_sheet(workbook["How to Use"])
-
-    # Save final workbook
-    workbook.save(output_path)
+    # Save workbook
+    wb.save(output_path)
 
 
-def create_dashboard_sheet(
-    writer,
+def create_executive_dashboard(
+    wb,
     transactions,
     total_income,
     total_expenses,
@@ -107,387 +63,434 @@ def create_dashboard_sheet(
     start_date,
     end_date,
     months_count,
+    monthly_summary,
+    category_summary,
 ):
-    """Create dashboard with summary metrics"""
+    """Create professional executive dashboard"""
 
-    # Create summary data
-    summary_data = {
-        "Metric": [
-            "Total Income",
-            "Total Expenses",
-            "Net Income",
-            "Statement Period",
-            "Months Analyzed",
-            "Total Transactions",
-        ],
-        "Value": [
-            f"${total_income:,.2f}",
-            f"${total_expenses:,.2f}",
-            f"${net_income:,.2f}",
-            f'{start_date.strftime("%b %d, %Y")} - {end_date.strftime("%b %d, %Y")}',
-            str(months_count),
-            str(len(transactions)),
-        ],
-    }
+    ws = wb.create_sheet("Executive Dashboard", 0)
 
-    df_summary = pd.DataFrame(summary_data)
-    df_summary.to_excel(writer, sheet_name="Dashboard", index=False, startrow=1)
+    # Set column widths
+    ws.column_dimensions["A"].width = 3
+    ws.column_dimensions["B"].width = 18
+    ws.column_dimensions["C"].width = 18
+    ws.column_dimensions["D"].width = 18
+    ws.column_dimensions["E"].width = 3
+    ws.column_dimensions["F"].width = 25
+    ws.column_dimensions["G"].width = 15
 
+    # ===== HEADER SECTION =====
+    ws.merge_cells("B2:D2")
+    ws["B2"] = "Financial Dashboard"
+    ws["B2"].font = Font(size=24, bold=True, color="1E3A8A")
+    ws["B2"].alignment = Alignment(horizontal="left", vertical="center")
 
-def create_instructions_sheet(writer):
-    """Create instructions page"""
+    ws.merge_cells("B3:D3")
+    ws["B3"] = f'{start_date.strftime("%b %d, %Y")} - {end_date.strftime("%b %d, %Y")}'
+    ws["B3"].font = Font(size=11, color="64748B")
+    ws["B3"].alignment = Alignment(horizontal="left")
 
-    instructions = [
-        ["BankToCFO - How to Use Your CFO Pack", ""],
-        ["", ""],
-        [
-            "What is this?",
-            "Your bank statement has been converted into a professional financial report with AI-powered categorization.",
-        ],
-        ["", ""],
-        ["Sheets Overview:", ""],
-        ["", ""],
-        [
-            "1. Dashboard",
-            "Quick overview of your finances with key metrics and visualizations",
-        ],
-        [
-            "2. All Transactions",
-            "Complete list of all transactions, sorted by date with categories",
-        ],
-        [
-            "3. Monthly Analysis",
-            "Month-by-month breakdown of income, expenses, and net income",
-        ],
-        ["4. Category Analysis", "Spending breakdown by category with percentages"],
-        ["5. How to Use", "This page - instructions and tips"],
-        ["", ""],
-        ["Understanding Categories:", ""],
-        ["• Revenue/Income", "Money coming in (salary, payments received, etc)"],
-        ["• Fast Food", "Quick service restaurants (Chipotle, McDonald's, etc)"],
-        ["• Restaurants", "Sit-down dining, bars, cafes"],
-        ["• Gas & Fuel", "Gas stations, fuel purchases"],
-        ["• Subscriptions", "Recurring services (Netflix, Spotify, etc)"],
-        ["• Groceries", "Supermarkets, grocery stores"],
-        ["• Shopping", "Retail purchases (Amazon, Target, etc)"],
-        ["• Debt Payments", "Loan payments, credit card payments"],
-        ["• Fitness", "Gym memberships, fitness classes"],
-        ["• Healthcare", "Medical, dental, pharmacy"],
-        ["• Transportation", "Uber, Lyft, parking, tolls"],
-        ["• Utilities", "Electric, internet, phone bills"],
-        ["• Insurance", "All insurance payments"],
-        ["", ""],
-        ["Tips for Better Insights:", ""],
-        ["1.", "Compare monthly spending to identify trends"],
-        ["2.", "Look for unexpected high-spend categories"],
-        ["3.", 'Review "Other Expense" category for miscategorized items'],
-        ["4.", "Use this for tax preparation and expense tracking"],
-        ["5.", "Upload multiple months to see spending patterns over time"],
-        ["", ""],
-        ["Need Help?", "Contact support@banktocfo.com"],
-        ["", ""],
-        [
-            "Note:",
-            "AI categorization is 85-90% accurate. Review categories for tax purposes.",
-        ],
-    ]
-
-    df_instructions = pd.DataFrame(instructions, columns=["Section", "Details"])
-    df_instructions.to_excel(writer, sheet_name="How to Use", index=False)
-
-
-def format_dashboard_sheet(sheet, monthly_summary, category_summary):
-    """Format the Dashboard sheet with professional styling"""
-
-    # Title
-    sheet["A1"] = "Financial Dashboard"
-    sheet["A1"].font = Font(size=20, bold=True, color="168C54")
-    sheet.merge_cells("A1:B1")
-
-    # Format summary metrics section
-    header_fill = PatternFill(
-        start_color="168C54", end_color="168C54", fill_type="solid"
+    # ===== KPI CARDS =====
+    create_kpi_card(ws, "B5", "Total Income", total_income, "059669", is_currency=True)
+    create_kpi_card(
+        ws, "C5", "Total Expenses", total_expenses, "DC2626", is_currency=True
     )
-    header_font = Font(bold=True, color="FFFFFF", size=12)
+
+    # Net Income card (green if positive, red if negative)
+    color = "059669" if net_income >= 0 else "DC2626"
+    create_kpi_card(ws, "D5", "Net Income", net_income, color, is_currency=True)
+
+    # Additional metrics
+    ws["B8"] = "Period"
+    ws["B8"].font = Font(size=10, color="64748B")
+    ws["C8"] = f"{months_count} months"
+    ws["C8"].font = Font(size=10, bold=True)
+    ws["C8"].alignment = Alignment(horizontal="left")
+
+    ws["B9"] = "Transactions"
+    ws["B9"].font = Font(size=10, color="64748B")
+    ws["C9"] = f"{len(transactions)}"
+    ws["C9"].font = Font(size=10, bold=True)
+    ws["C9"].alignment = Alignment(horizontal="left")
+
+    # ===== RECENT TRANSACTIONS SECTION =====
+    ws["B12"] = "Recent Transactions"
+    ws["B12"].font = Font(size=14, bold=True, color="1E3A8A")
 
     # Headers
-    sheet["A2"].fill = header_fill
-    sheet["A2"].font = header_font
-    sheet["B2"].fill = header_fill
-    sheet["B2"].font = header_font
+    headers = ["Date", "Description", "Category", "Amount"]
+    header_fill = PatternFill(
+        start_color="E0F2FE", end_color="E0F2FE", fill_type="solid"
+    )
 
-    # Column widths
-    sheet.column_dimensions["A"].width = 25
-    sheet.column_dimensions["B"].width = 40
+    for idx, header in enumerate(headers):
+        cell = ws.cell(row=14, column=idx + 2)
+        cell.value = header
+        cell.font = Font(size=10, bold=True, color="1E3A8A")
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="left" if idx < 2 else "right")
 
-    # Format metric rows
-    for row in range(3, 9):
-        sheet[f"A{row}"].font = Font(bold=True, size=11)
-        sheet[f"B{row}"].font = Font(size=11)
+    # Recent transactions (last 7)
+    recent = sorted(transactions, key=lambda x: x["date"], reverse=True)[:7]
+    for idx, trans in enumerate(recent):
+        row = 15 + idx
+        ws.cell(row=row, column=2).value = trans["date"]
+        ws.cell(row=row, column=3).value = trans["description"][:40]
+        ws.cell(row=row, column=4).value = trans["category"]
+        ws.cell(row=row, column=5).value = trans["amount"]
+        ws.cell(row=row, column=5).number_format = "$#,##0.00"
 
-        # Add light gray background to alternating rows
-        if row % 2 == 0:
-            sheet[f"A{row}"].fill = PatternFill(
-                start_color="F8F9FA", end_color="F8F9FA", fill_type="solid"
-            )
-            sheet[f"B{row}"].fill = PatternFill(
-                start_color="F8F9FA", end_color="F8F9FA", fill_type="solid"
-            )
+        # Color code amounts
+        amount_cell = ws.cell(row=row, column=5)
+        if trans["amount"] < 0:
+            amount_cell.font = Font(color="DC2626", bold=True)
+        else:
+            amount_cell.font = Font(color="059669", bold=True)
 
-    # Highlight Net Income in green or red
-    net_income_value = sheet["B5"].value
-    if net_income_value and "-" in str(net_income_value):
-        sheet["B5"].font = Font(bold=True, color="DC3545", size=12)  # Red for negative
-    else:
-        sheet["B5"].font = Font(
-            bold=True, color="28A745", size=12
-        )  # Green for positive
+        # Right align amounts
+        for col in [4, 5]:
+            ws.cell(row=row, column=col).alignment = Alignment(horizontal="right")
 
-    # Add Monthly Cashflow Chart
-    add_monthly_chart(sheet, monthly_summary, start_row=11)
+    # ===== CATEGORY BREAKDOWN SECTION =====
+    ws["F12"] = "By Category"
+    ws["F12"].font = Font(size=14, bold=True, color="1E3A8A")
 
-    # Add Category Breakdown Chart
-    add_category_chart(sheet, category_summary, start_row=28)
+    # Category headers
+    ws["F14"] = "Category"
+    ws["G14"] = "Amount"
+    for cell in [ws["F14"], ws["G14"]]:
+        cell.font = Font(size=10, bold=True, color="1E3A8A")
+        cell.fill = header_fill
 
+    ws["G14"].alignment = Alignment(horizontal="right")
 
-def add_monthly_chart(sheet, monthly_summary, start_row):
-    """Add monthly cashflow bar chart to dashboard"""
+    # Top 7 expense categories
+    expenses = {k: abs(v) for k, v in category_summary.items() if v < 0}
+    top_expenses = sorted(expenses.items(), key=lambda x: x[1], reverse=True)[:7]
 
-    # Add section title
-    sheet[f"A{start_row}"] = "Monthly Cashflow"
-    sheet[f"A{start_row}"].font = Font(size=14, bold=True, color="168C54")
+    for idx, (cat, amt) in enumerate(top_expenses):
+        row = 15 + idx
+        ws.cell(row=row, column=6).value = cat
+        ws.cell(row=row, column=7).value = amt
+        ws.cell(row=row, column=7).number_format = "$#,##0.00"
+        ws.cell(row=row, column=7).alignment = Alignment(horizontal="right")
+        ws.cell(row=row, column=7).font = Font(color="DC2626", bold=True)
 
-    # Add data for chart
-    start_row += 2
-    sheet[f"A{start_row}"] = "Month"
-    sheet[f"B{start_row}"] = "Income"
-    sheet[f"C{start_row}"] = "Expenses"
+    # Add data bars to category amounts
+    data_bar_rule = DataBarRule(
+        start_type="min", end_type="max", color="DC2626", showValue=True
+    )
+    ws.conditional_formatting.add(f"G15:G{14+len(top_expenses)}", data_bar_rule)
 
-    # Header formatting
-    for col in ["A", "B", "C"]:
-        cell = sheet[f"{col}{start_row}"]
-        cell.fill = PatternFill(
-            start_color="168C54", end_color="168C54", fill_type="solid"
-        )
-        cell.font = Font(bold=True, color="FFFFFF")
+    # ===== MONTHLY CASHFLOW SECTION =====
+    ws["B25"] = "Monthly Cashflow"
+    ws["B25"].font = Font(size=14, bold=True, color="1E3A8A")
+
+    # Create monthly data table for chart
+    chart_row_start = 27
+    ws.cell(chart_row_start, 2).value = "Month"
+    ws.cell(chart_row_start, 3).value = "Income"
+    ws.cell(chart_row_start, 4).value = "Expenses"
+
+    for cell in [
+        ws.cell(chart_row_start, 2),
+        ws.cell(chart_row_start, 3),
+        ws.cell(chart_row_start, 4),
+    ]:
+        cell.font = Font(size=10, bold=True, color="1E3A8A")
+        cell.fill = header_fill
 
     # Add monthly data
-    row = start_row + 1
+    data_row = chart_row_start + 1
     for month, data in sorted(monthly_summary.items()):
-        sheet[f"A{row}"] = month
-        sheet[f"B{row}"] = data["revenue"]
-        sheet[f"C{row}"] = data["expenses"]
-
-        # Format currency
-        sheet[f"B{row}"].number_format = "$#,##0.00"
-        sheet[f"C{row}"].number_format = "$#,##0.00"
-
-        row += 1
+        ws.cell(data_row, 2).value = month
+        ws.cell(data_row, 3).value = data["revenue"]
+        ws.cell(data_row, 4).value = data["expenses"]
+        ws.cell(data_row, 3).number_format = "$#,##0"
+        ws.cell(data_row, 4).number_format = "$#,##0"
+        data_row += 1
 
     # Create bar chart
     chart = BarChart()
     chart.type = "col"
-    chart.style = 10
-    chart.title = "Monthly Income vs Expenses"
+    chart.style = 11
+    chart.title = "Income vs Expenses"
     chart.y_axis.title = "Amount ($)"
-    chart.x_axis.title = "Month"
+    chart.x_axis.title = None
     chart.height = 10
     chart.width = 16
+    chart.legend = None
 
-    # Add data
-    data = Reference(sheet, min_col=2, min_row=start_row, max_row=row - 1, max_col=3)
-    cats = Reference(sheet, min_col=1, min_row=start_row + 1, max_row=row - 1)
-
-    chart.add_data(data, titles_from_data=True)
-    chart.set_categories(cats)
-
-    # Position chart
-    sheet.add_chart(chart, f"E{start_row}")
-
-
-def add_category_chart(sheet, category_summary, start_row):
-    """Add category breakdown chart to dashboard"""
-
-    # Add section title
-    sheet[f"A{start_row}"] = "Top Spending Categories"
-    sheet[f"A{start_row}"].font = Font(size=14, bold=True, color="168C54")
-
-    # Add data for chart (top 10 expenses only)
-    start_row += 2
-    sheet[f"A{start_row}"] = "Category"
-    sheet[f"B{start_row}"] = "Amount"
-
-    # Header formatting
-    for col in ["A", "B"]:
-        cell = sheet[f"{col}{start_row}"]
-        cell.fill = PatternFill(
-            start_color="168C54", end_color="168C54", fill_type="solid"
-        )
-        cell.font = Font(bold=True, color="FFFFFF")
-
-    # Add category data (expenses only, sorted by amount)
-    expenses = {k: abs(v) for k, v in category_summary.items() if v < 0}
-    top_expenses = sorted(expenses.items(), key=lambda x: x[1], reverse=True)[:10]
-
-    row = start_row + 1
-    for category, amount in top_expenses:
-        sheet[f"A{row}"] = category
-        sheet[f"B{row}"] = amount
-        sheet[f"B{row}"].number_format = "$#,##0.00"
-        row += 1
-
-    # Create horizontal bar chart
-    chart = BarChart()
-    chart.type = "bar"  # Horizontal bars
-    chart.style = 11
-    chart.title = "Spending by Category"
-    chart.x_axis.title = "Amount ($)"
-    chart.height = 12
-    chart.width = 16
-
-    # Add data
-    data = Reference(sheet, min_col=2, min_row=start_row, max_row=row - 1)
-    cats = Reference(sheet, min_col=1, min_row=start_row + 1, max_row=row - 1)
-
-    chart.add_data(data, titles_from_data=True)
-    chart.set_categories(cats)
-
-    # Position chart
-    sheet.add_chart(chart, f"E{start_row}")
-
-
-def format_transactions_sheet(sheet):
-    """Format the All Transactions sheet"""
-
-    # Header formatting
-    header_fill = PatternFill(
-        start_color="168C54", end_color="168C54", fill_type="solid"
+    data = Reference(
+        ws, min_col=3, min_row=chart_row_start, max_row=data_row - 1, max_col=4
     )
-    header_font = Font(bold=True, color="FFFFFF", size=12)
+    cats = Reference(ws, min_col=2, min_row=chart_row_start + 1, max_row=data_row - 1)
 
-    for cell in sheet[1]:
+    chart.add_data(data, titles_from_data=True)
+    chart.set_categories(cats)
+
+    # Style chart
+    from openpyxl.chart.series import DataLabelList
+
+    for i, series in enumerate(chart.series):
+        series.graphicalProperties.solidFill = "059669" if i == 0 else "DC2626"
+
+    ws.add_chart(chart, f"B{data_row + 2}")
+
+
+def create_kpi_card(ws, cell, label, value, color, is_currency=False):
+    """Create a visual KPI card"""
+
+    row = int(cell[1:])
+    col_letter = cell[0]
+
+    # Card background
+    fill = PatternFill(start_color="F8FAFC", end_color="F8FAFC", fill_type="solid")
+    border = Border(
+        left=Side(style="thin", color="E2E8F0"),
+        right=Side(style="thin", color="E2E8F0"),
+        top=Side(style="thin", color="E2E8F0"),
+        bottom=Side(style="thin", color="E2E8F0"),
+    )
+
+    # Label
+    label_cell = ws[f"{col_letter}{row}"]
+    label_cell.value = label
+    label_cell.font = Font(size=9, color="64748B")
+    label_cell.fill = fill
+    label_cell.border = border
+    label_cell.alignment = Alignment(horizontal="left", vertical="top")
+
+    # Value
+    value_cell = ws[f"{col_letter}{row+1}"]
+    if is_currency:
+        value_cell.value = value
+        value_cell.number_format = "$#,##0"
+    else:
+        value_cell.value = value
+
+    value_cell.font = Font(size=18, bold=True, color=color)
+    value_cell.fill = fill
+    value_cell.border = border
+    value_cell.alignment = Alignment(horizontal="left", vertical="bottom")
+
+
+def create_transactions_sheet(wb, transactions):
+    """Create detailed transactions sheet"""
+
+    ws = wb.create_sheet("Transactions")
+
+    # Headers
+    headers = ["Date", "Description", "Category", "Amount", "Type"]
+    header_fill = PatternFill(
+        start_color="0D9488", end_color="0D9488", fill_type="solid"
+    )
+
+    for idx, header in enumerate(headers, 1):
+        cell = ws.cell(1, idx)
+        cell.value = header
+        cell.font = Font(bold=True, color="FFFFFF", size=11)
         cell.fill = header_fill
-        cell.font = header_font
-        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.alignment = Alignment(horizontal="center")
 
     # Column widths
-    sheet.column_dimensions["A"].width = 12  # Date
-    sheet.column_dimensions["B"].width = 55  # Description
-    sheet.column_dimensions["C"].width = 22  # Category
-    sheet.column_dimensions["D"].width = 15  # Amount
-    sheet.column_dimensions["E"].width = 10  # Type
+    ws.column_dimensions["A"].width = 12
+    ws.column_dimensions["B"].width = 60
+    ws.column_dimensions["C"].width = 25
+    ws.column_dimensions["D"].width = 15
+    ws.column_dimensions["E"].width = 10
 
-    # Format amounts as currency with color coding
-    for row in range(2, sheet.max_row + 1):
-        amount_cell = sheet[f"D{row}"]
-        amount_cell.number_format = "$#,##0.00"
-        amount_cell.alignment = Alignment(horizontal="right")
+    # Data
+    df = pd.DataFrame(transactions)
+    df = df[["date", "description", "category", "amount", "type"]]
+    df = df.sort_values("date", ascending=False)
 
-        # Color code: red for expenses, green for income
-        if amount_cell.value and amount_cell.value < 0:
-            amount_cell.font = Font(color="DC3545", bold=True)
+    for idx, row in enumerate(df.itertuples(index=False), 2):
+        ws.cell(idx, 1).value = row.date
+        ws.cell(idx, 2).value = row.description
+        ws.cell(idx, 3).value = row.category
+        ws.cell(idx, 4).value = row.amount
+        ws.cell(idx, 4).number_format = "$#,##0.00"
+        ws.cell(idx, 5).value = row.type
+
+        # Color code amounts
+        if row.amount < 0:
+            ws.cell(idx, 4).font = Font(color="DC2626", bold=True)
         else:
-            amount_cell.font = Font(color="28A745", bold=True)
+            ws.cell(idx, 4).font = Font(color="059669", bold=True)
 
-        # Alternate row colors
-        if row % 2 == 0:
-            for col in ["A", "B", "C", "D", "E"]:
-                sheet[f"{col}{row}"].fill = PatternFill(
-                    start_color="F8F9FA", end_color="F8F9FA", fill_type="solid"
-                )
-
-    # Freeze top row
-    sheet.freeze_panes = "A2"
+    ws.freeze_panes = "A2"
 
 
-def format_monthly_sheet(sheet):
-    """Format Monthly Analysis sheet"""
+def create_monthly_sheet(wb, monthly_summary):
+    """Create monthly analysis sheet"""
 
-    # Header formatting
+    ws = wb.create_sheet("Monthly Analysis")
+
+    headers = ["Month", "Income", "Expenses", "Net Income"]
     header_fill = PatternFill(
-        start_color="168C54", end_color="168C54", fill_type="solid"
+        start_color="0D9488", end_color="0D9488", fill_type="solid"
     )
-    header_font = Font(bold=True, color="FFFFFF", size=12)
 
-    for cell in sheet[1]:
+    for idx, header in enumerate(headers, 1):
+        cell = ws.cell(1, idx)
+        cell.value = header
+        cell.font = Font(bold=True, color="FFFFFF", size=11)
         cell.fill = header_fill
-        cell.font = header_font
-        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.alignment = Alignment(horizontal="center")
 
-    # Column widths
-    sheet.column_dimensions["A"].width = 12
-    sheet.column_dimensions["B"].width = 18
-    sheet.column_dimensions["C"].width = 18
-    sheet.column_dimensions["D"].width = 18
+    ws.column_dimensions["A"].width = 12
+    for col in ["B", "C", "D"]:
+        ws.column_dimensions[col].width = 15
 
-    # Format currency
-    for row in range(2, sheet.max_row + 1):
-        for col in ["B", "C", "D"]:
-            cell = sheet[f"{col}{row}"]
-            cell.number_format = "$#,##0.00"
-            cell.alignment = Alignment(horizontal="right")
+    for idx, (month, data) in enumerate(sorted(monthly_summary.items()), 2):
+        ws.cell(idx, 1).value = month
+        ws.cell(idx, 2).value = data["revenue"]
+        ws.cell(idx, 3).value = data["expenses"]
+        ws.cell(idx, 4).value = data["net_income"]
+
+        for col in [2, 3, 4]:
+            ws.cell(idx, col).number_format = "$#,##0.00"
 
         # Color code net income
-        net_cell = sheet[f"D{row}"]
-        if net_cell.value and net_cell.value < 0:
-            net_cell.font = Font(color="DC3545", bold=True)
+        if data["net_income"] < 0:
+            ws.cell(idx, 4).font = Font(color="DC2626", bold=True)
         else:
-            net_cell.font = Font(color="28A745", bold=True)
+            ws.cell(idx, 4).font = Font(color="059669", bold=True)
 
 
-def format_category_sheet(sheet):
-    """Format Category Analysis sheet"""
+def create_category_sheet(wb, category_summary, total_expenses):
+    """Create category analysis sheet"""
 
-    # Header formatting
+    ws = wb.create_sheet("Category Analysis")
+
+    headers = ["Category", "Amount", "Percentage"]
     header_fill = PatternFill(
-        start_color="168C54", end_color="168C54", fill_type="solid"
+        start_color="0D9488", end_color="0D9488", fill_type="solid"
     )
-    header_font = Font(bold=True, color="FFFFFF", size=12)
 
-    for cell in sheet[1]:
+    for idx, header in enumerate(headers, 1):
+        cell = ws.cell(1, idx)
+        cell.value = header
+        cell.font = Font(bold=True, color="FFFFFF", size=11)
         cell.fill = header_fill
-        cell.font = header_font
-        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.alignment = Alignment(horizontal="center")
 
-    # Column widths
-    sheet.column_dimensions["A"].width = 30
-    sheet.column_dimensions["B"].width = 18
-    sheet.column_dimensions["C"].width = 15
+    ws.column_dimensions["A"].width = 30
+    ws.column_dimensions["B"].width = 18
+    ws.column_dimensions["C"].width = 15
 
-    # Format data
-    for row in range(2, sheet.max_row + 1):
-        # Amount
-        amount_cell = sheet[f"B{row}"]
-        amount_cell.number_format = "$#,##0.00"
-        amount_cell.alignment = Alignment(horizontal="right")
+    categories = sorted(category_summary.items(), key=lambda x: abs(x[1]), reverse=True)
 
-        if amount_cell.value and amount_cell.value < 0:
-            amount_cell.font = Font(color="DC3545")
+    for idx, (cat, amt) in enumerate(categories, 2):
+        ws.cell(idx, 1).value = cat
+        ws.cell(idx, 2).value = amt
+        ws.cell(idx, 2).number_format = "$#,##0.00"
+
+        if amt < 0:
+            pct = (abs(amt) / total_expenses * 100) if total_expenses > 0 else 0
+            ws.cell(idx, 3).value = pct / 100
+            ws.cell(idx, 3).number_format = "0.0%"
+            ws.cell(idx, 2).font = Font(color="DC2626")
         else:
-            amount_cell.font = Font(color="28A745")
-
-        # Percentage
-        pct_cell = sheet[f"C{row}"]
-        pct_cell.number_format = '0.0"%"'
-        pct_cell.alignment = Alignment(horizontal="right")
+            ws.cell(idx, 3).value = 0
+            ws.cell(idx, 3).number_format = "0.0%"
+            ws.cell(idx, 2).font = Font(color="059669")
 
 
-def format_instructions_sheet(sheet):
-    """Format How to Use sheet"""
+def create_instructions_sheet(wb):
+    """Create how to use sheet"""
 
-    # Column widths
-    sheet.column_dimensions["A"].width = 25
-    sheet.column_dimensions["B"].width = 80
+    ws = wb.create_sheet("How to Use")
 
-    # Format title (first row)
-    sheet["A1"].font = Font(size=16, bold=True, color="168C54")
-    sheet.merge_cells("A1:B1")
+    ws.column_dimensions["A"].width = 80
 
-    # Format section headers (bold)
-    for row in range(1, sheet.max_row + 1):
-        cell = sheet[f"A{row}"]
-        if cell.value and ":" in str(cell.value):
-            cell.font = Font(bold=True, size=12, color="168C54")
+    content = [
+        ("BankToCFO - Professional Financial Dashboard", 20, True, "0D9488"),
+        ("", 10, False, None),
+        ("What You're Looking At:", 14, True, "1E3A8A"),
+        (
+            "This CFO Pack transforms your bank statement into an executive-level financial dashboard with AI-powered categorization and professional visualizations.",
+            10,
+            False,
+            None,
+        ),
+        ("", 10, False, None),
+        ("Sheet Breakdown:", 14, True, "1E3A8A"),
+        ("", 10, False, None),
+        (
+            "1. Executive Dashboard - Your command center with KPIs, recent transactions, and category breakdown",
+            10,
+            False,
+            None,
+        ),
+        (
+            "2. Transactions - Complete list of all transactions with AI categorization",
+            10,
+            False,
+            None,
+        ),
+        (
+            "3. Monthly Analysis - Month-over-month income, expenses, and net income trends",
+            10,
+            False,
+            None,
+        ),
+        (
+            "4. Category Analysis - Detailed spending breakdown by category with percentages",
+            10,
+            False,
+            None,
+        ),
+        ("5. How to Use - This guide", 10, False, None),
+        ("", 10, False, None),
+        ("Key Metrics Explained:", 14, True, "1E3A8A"),
+        ("", 10, False, None),
+        (
+            "Total Income - All money coming in (salary, deposits, payments received)",
+            10,
+            False,
+            None,
+        ),
+        (
+            "Total Expenses - All money going out (purchases, bills, transfers)",
+            10,
+            False,
+            None,
+        ),
+        ("Net Income - Income minus Expenses (your bottom line)", 10, False, None),
+        ("", 10, False, None),
+        ("Category Intelligence:", 14, True, "1E3A8A"),
+        ("", 10, False, None),
+        (
+            "Our AI categorizes transactions into 30+ categories including Fast Food, Restaurants, Gas & Fuel, Subscriptions, Shopping, Debt Payments, Fitness, Healthcare, and more. Categorization is 85-90% accurate.",
+            10,
+            False,
+            None,
+        ),
+        ("", 10, False, None),
+        ("Pro Tips:", 14, True, "1E3A8A"),
+        ("", 10, False, None),
+        (
+            "• Review the Executive Dashboard first for your financial snapshot",
+            10,
+            False,
+            None,
+        ),
+        ('• Check "By Category" to identify spending opportunities', 10, False, None),
+        ("• Use Monthly Analysis to spot trends over time", 10, False, None),
+        ("• Verify transaction categories for tax purposes", 10, False, None),
+        ("• Upload multiple months to track long-term patterns", 10, False, None),
+        ("", 10, False, None),
+        ("Questions? support@banktocfo.com", 11, True, "0D9488"),
+    ]
 
-        # Wrap text for details column
-        sheet[f"B{row}"].alignment = Alignment(wrap_text=True, vertical="top")
+    for idx, item in enumerate(content, 1):
+        text, size, bold, color = item
+        cell = ws.cell(idx, 1)
+        cell.value = text
+        cell.font = Font(size=size, bold=bold, color=color if color else "000000")
+        cell.alignment = Alignment(wrap_text=True, vertical="top")
+
+        if size > 12:
+            ws.row_dimensions[idx].height = 25
