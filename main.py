@@ -9,6 +9,9 @@ from datetime import datetime
 from services.parser import parse_bank_statement
 from services.categorizer import categorize_transactions
 from services.excel_generator import generate_cfo_pack
+from dotenv import load_dotenv
+
+load_dotenv()  # Add this line at the very top, before anything else
 
 app = FastAPI(title="BankToCFO API", version="1.0.0")
 
