@@ -5,6 +5,7 @@ import base64
 import os
 from openai import OpenAI
 import json
+from datetime import datetime, timedelta
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
@@ -185,4 +186,37 @@ def parse_pdf_statement(pdf_path: Path) -> List[Dict]:
 
     print(f"Total unique transactions: {len(unique_transactions)}")
 
-    return unique_transactions
+    # Validate dates - filter out any dates that seem wrong
+    # Bank statements should only contain transactions from the last 2 years max
+    now = datetime.now()
+    two_years_ago = now - timedelta(days=730)  # 2 years
+    one_month_future = now + timedelta(days=31)  # Allow small future dates
+
+    valid_transactions = []
+    invalid_count = 0
+
+    for trans in unique_transactions:
+        try:
+            trans_date = datetime.strptime(trans["date"], "%Y-%m-%d")
+
+            # Check if date is within reasonable range
+            if two_years_ago <= trans_date <= one_month_future:
+                valid_transactions.append(trans)
+            else:
+                print(
+                    f"⚠ Skipping invalid date: {trans['date']} - {trans['description'][:50]}"
+                )
+                invalid_count += 1
+        except Exception as e:
+            print(
+                f"⚠ Skipping transaction with bad date format: {trans.get('date')} - {e}"
+            )
+            invalid_count += 1
+            continue
+
+    if invalid_count > 0:
+        print(f"Filtered out {invalid_count} transactions with invalid dates")
+
+    print(f"Final valid transactions: {len(valid_transactions)}")
+
+    return valid_transactions
